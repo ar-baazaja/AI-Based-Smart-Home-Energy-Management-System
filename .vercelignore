@@ -5,13 +5,27 @@ test_backend.py
 requirements.txt
 *.py
 *.pyc
+*.pyo
+*.pyd
 __pycache__/
 venv/
 env/
 .venv/
+ENV/
+*.egg-info/
+dist/
+build/
+.Python
 
 # Backend batch files
 START_BACKEND.bat
+
+# Python-related files that might trigger pip install
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Documentation files (optional - can include if needed)
 # *.md
