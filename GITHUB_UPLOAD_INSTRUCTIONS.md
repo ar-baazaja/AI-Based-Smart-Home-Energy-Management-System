@@ -64,4 +64,3 @@ git push -u origin main
 Your code will be uploaded to:
 https://github.com/ar-baazaja/AI-Based-Smart-Home-Energy-Management-System
 
-
