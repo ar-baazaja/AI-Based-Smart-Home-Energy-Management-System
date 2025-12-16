@@ -1,11 +1,6 @@
 #!/usr/bin/env node
-import fs from 'fs';
-import path from 'path';
-import { execSync } from 'child_process';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const fs = require('fs');
+const path = require('path');
 
 // Temporarily rename requirements.txt to prevent Vercel from detecting Python
 const requirementsPath = path.join(process.cwd(), 'requirements.txt');
@@ -17,6 +12,7 @@ if (fs.existsSync(requirementsPath)) {
 }
 
 // Run npm install
+const { execSync } = require('child_process');
 try {
   execSync('npm install', { stdio: 'inherit' });
 } finally {
@@ -26,3 +22,4 @@ try {
     console.log('Restored requirements.txt');
   }
 }
+
