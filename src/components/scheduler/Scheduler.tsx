@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Plus, Zap, Database, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Appliance, TariffRate, OptimizationResult, OptimizationParams, OptimizationResponse } from '@/types/scheduler';
-import { optimizeSchedule, checkBackendHealth } from '@/lib/optimizer';
+import { Appliance, TariffRate, OptimizationResult, OptimizationParams, OptimizationResponse, ScheduleCell } from '@/types/scheduler';
+import { optimizeSchedule, checkBackendHealth, optimizeScheduleLegacy } from '@/lib/optimizer';
 import { Header } from './Header';
 import { ApplianceCard } from './ApplianceCard';
 import { TariffUpload } from './TariffUpload';
@@ -124,19 +124,77 @@ export function Scheduler() {
     setSelectedResultIndex(0);
 
     try {
-      const response = await optimizeSchedule(
-        appliances,
-        tariffRates,
-        optimizationParams.iterations,
-        optimizationParams.populationSize
-      );
-      
-      if (response.success && response.results && response.results.length > 0) {
+      // Try backend first, fallback to client-side optimizer if backend is not available
+      let response;
+      try {
+        response = await optimizeSchedule(
+          appliances,
+          tariffRates,
+          optimizationParams.iterations,
+          optimizationParams.populationSize
+        );
+        
+        if (response.success && response.results && response.results.length > 0) {
+          setOptimizationResponse({
+            baseline: response.baseline,
+            results: response.results
+          });
+          setResult(response.results[0]); // Set first result as default
+          setIsOptimizing(false);
+
+          setTimeout(() => {
+            document.getElementById('results-section')?.scrollIntoView({ 
+              behavior: 'smooth',
+              block: 'start'
+            });
+          }, 100);
+          return;
+        }
+      } catch (backendError: any) {
+        // Backend failed, use client-side fallback
+        console.warn('Backend optimization failed, using client-side fallback:', backendError);
+        
+        // Use client-side optimizer
+        const clientResult = optimizeScheduleLegacy(
+          appliances,
+          tariffRates,
+          optimizationParams.iterations,
+          optimizationParams.populationSize
+        );
+
+        // Format as OptimizationResponse (client-side only returns one result)
+        // Create baseline schedule from original appliance hours
+        const baselineSchedule: ScheduleCell[][] = Array.from({ length: 24 }, (_, hour) => [{
+          hour,
+          appliances: appliances.map(app => ({
+            id: app.id,
+            name: app.name,
+            isEssential: app.isEssential,
+            isOn: app.hours.includes(hour)
+          }))
+        }]);
+
         setOptimizationResponse({
-          baseline: response.baseline,
-          results: response.results
+          success: true,
+          baseline: {
+            schedule: baselineSchedule,
+            cost: clientResult.costBefore
+          },
+          results: [{
+            schedule: clientResult.schedule,
+            costBefore: clientResult.costBefore,
+            costAfter: clientResult.costAfter,
+            savings: clientResult.savings,
+            savingsPercentage: clientResult.savingsPercentage
+          }]
         });
-        setResult(response.results[0]); // Set first result as default
+        setResult({
+          schedule: clientResult.schedule,
+          costBefore: clientResult.costBefore,
+          costAfter: clientResult.costAfter,
+          savings: clientResult.savings,
+          savingsPercentage: clientResult.savingsPercentage
+        });
         setIsOptimizing(false);
 
         setTimeout(() => {
@@ -145,13 +203,15 @@ export function Scheduler() {
             block: 'start'
           });
         }, 100);
-      } else {
-        throw new Error('Invalid response from server');
+        return;
       }
+
+      // If we get here, backend returned invalid response
+      throw new Error('Invalid response from server');
     } catch (error: any) {
       console.error('Optimization error:', error);
       const errorMessage = error?.message || 'Unknown error';
-      alert(`Failed to optimize schedule.\n\nError: ${errorMessage}\n\nPlease ensure:\n1. Backend server is running on http://localhost:5000\n2. Backend dependencies are installed (pip install -r requirements.txt)\n3. No firewall is blocking the connection`);
+      alert(`Failed to optimize schedule.\n\nError: ${errorMessage}`);
       setIsOptimizing(false);
     }
   };
@@ -250,19 +310,26 @@ export function Scheduler() {
         {/* Backend Connection Status */}
         {backendConnected === false && (
           <section className="mb-8">
-            <Card className="glass-card rounded-2xl border-2 border-red-500/50 bg-red-500/10 p-4">
+            <Card className="glass-card rounded-2xl border-2 border-yellow-500/50 bg-yellow-500/10 p-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
-                  <span className="text-2xl">⚠️</span>
+                <div className="w-10 h-10 rounded-xl bg-yellow-500/20 flex items-center justify-center">
+                  <span className="text-2xl">ℹ️</span>
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-red-400">Backend Server Not Connected</h3>
-                  <p className="text-sm text-red-300">
-                    Please start the Flask backend server on <code className="bg-slate-800 px-2 py-1 rounded">http://localhost:5000</code>
+                  <h3 className="text-lg font-semibold text-yellow-400">Using Client-Side Optimization</h3>
+                  <p className="text-sm text-yellow-300">
+                    Backend server not available. Using client-side optimizer (may be slower for large datasets).
                   </p>
-                  <p className="text-xs text-red-200 mt-1">
-                    Run: <code className="bg-slate-800 px-2 py-1 rounded">python app.py</code> or use <code className="bg-slate-800 px-2 py-1 rounded">START_BACKEND.bat</code>
-                  </p>
+                  {import.meta.env.DEV && (
+                    <p className="text-xs text-yellow-200 mt-1">
+                      For development: Start Flask backend on <code className="bg-slate-800 px-2 py-1 rounded">http://localhost:5000</code>
+                    </p>
+                  )}
+                  {!import.meta.env.DEV && (
+                    <p className="text-xs text-yellow-200 mt-1">
+                      For production: Deploy backend and set <code className="bg-slate-800 px-2 py-1 rounded">VITE_API_URL</code> environment variable
+                    </p>
+                  )}
                 </div>
               </div>
             </Card>
@@ -273,7 +340,7 @@ export function Scheduler() {
         <section className="mb-16 flex justify-center">
           <OptimizationButton
             onClick={handleOptimize}
-            disabled={appliances.length === 0 || tariffRates.length === 0 || backendConnected === false}
+            disabled={appliances.length === 0 || tariffRates.length === 0}
             isLoading={isOptimizing}
           />
         </section>
